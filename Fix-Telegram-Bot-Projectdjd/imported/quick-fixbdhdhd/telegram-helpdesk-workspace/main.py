@@ -370,6 +370,49 @@ def _button_premium_emoji_id(label: str) -> str | None:
     return None
 
 
+_WITHDRAWAL_COIN_EMOJI_ALIASES = {
+    "BTC": ("₿", "🟠"),
+    "ETH": ("🔷", "💎"),
+    "USDT": ("₮", "💵"),
+    "USDC": ("💲", "🔵"),
+    "LTC": ("Ł", "🔵"),
+    "SOL": ("◎", "🟣"),
+    "BNB": ("🔶", "🟡"),
+    "TRX": ("❤", "♥", "⚡"),
+    "XRP": ("✕", "🔵"),
+    "DOGE": ("🐕", "🐶"),
+    "SHIB": ("🐕", "🐶"),
+    "BCH": ("₿", "🟢"),
+    "MATIC": ("🟣", "⬡"),
+    "TON": ("💎", "🔹"),
+    "ADA": ("🔷", "🔵"),
+    "DOT": ("⚫", "⚪"),
+    "AVAX": ("🔺", "🔴"),
+}
+
+
+def _withdrawal_emoji(symbol: str, fallback: str | None = None) -> str:
+    """Render only an emoji verified as static in the Rollers Casino pack."""
+    emoji_id = _ROLLERS_CASINO_WITHDRAWAL_EMOJI_MAP.get(symbol)
+    if not emoji_id:
+        emoji_id = _ROLLERS_CASINO_EMOJI_MAP.get(symbol)
+    visible = fallback if fallback is not None else symbol
+    return (
+        f'<tg-emoji emoji-id="{emoji_id}">{visible}</tg-emoji>'
+        if emoji_id else visible
+    )
+
+
+def _withdrawal_button_emoji_id(code: str, label: str = "") -> str | None:
+    """Pick a withdrawal coin icon only from static emoji in the Rollers pack."""
+    static_map = _ROLLERS_CASINO_WITHDRAWAL_EMOJI_MAP or _ROLLERS_CASINO_EMOJI_MAP
+    for symbol in _WITHDRAWAL_COIN_EMOJI_ALIASES.get(str(code).upper(), ()):
+        if static_map.get(symbol):
+            return static_map[symbol]
+    # Use the shared resolver only for a verified general-pack icon.
+    return _button_premium_emoji_id(label)
+
+
 def _button_plain_label(text: str) -> str:
     """Remove leading Unicode icons when a premium button icon can replace them."""
     label = _button_label(text).lstrip()
@@ -9780,6 +9823,9 @@ _PROGRESS_BAR_STICKERS: list = []
 # captions use this map rather than accidentally borrowing a same-symbol emoji
 # from a later pack.
 _ROLLERS_CASINO_EMOJI_MAP: dict = {}
+# Withdrawal screens may use static coin marks from the same public pack,
+# including DOGE/SHIB marks omitted from the general UI emoji map.
+_ROLLERS_CASINO_WITHDRAWAL_EMOJI_MAP: dict = {}
 _DIAMOND_PACK_STATIC_IDS: set[str] = set()
 
 
@@ -9941,11 +9987,12 @@ async def _load_custom_emoji_pack(bot) -> None:
     """Fetch each configured custom-emoji pack once at startup.
     Uses raw httpx to bypass PTB StickerSet de-serialisation issues
     (some Bot API fields changed in newer versions, breaking the PTB parser)."""
-    global CUSTOM_EMOJI_MAP, CRYPTOCOINS_STICKERS, CRYPTOCOINS_DEFAULT_ID, _DC_MOJI_STICKERS, _DC_MOJI_BY_CODE, _PROGRESS_BAR_STICKERS, _ROLLERS_CASINO_EMOJI_MAP
+    global CUSTOM_EMOJI_MAP, CRYPTOCOINS_STICKERS, CRYPTOCOINS_DEFAULT_ID, _DC_MOJI_STICKERS, _DC_MOJI_BY_CODE, _PROGRESS_BAR_STICKERS, _ROLLERS_CASINO_EMOJI_MAP, _ROLLERS_CASINO_WITHDRAWAL_EMOJI_MAP
     global _BJ_HIDDEN_EMOJI_ID, _BJ_HEADER_EMOJI_ID
     global RANK_TIER_CUSTOM_EMOJI, DIAMOND_EMOJI_IDS
     merged: dict = {}
     rollers_casino_map: dict = {}
+    rollers_casino_withdrawal_map: dict = {}
     rank_pack_stickers: list = []
     diamond_game_pack_stickers: list = []
     import httpx as _hx
@@ -9968,6 +10015,14 @@ async def _load_custom_emoji_pack(bot) -> None:
             for st in stickers_raw:
                 ce_id = st.get("custom_emoji_id")
                 alt   = st.get("emoji")
+                if (
+                    pack == "rollerscasino_by_rollersgamebot"
+                    and ce_id
+                    and alt
+                    and not st.get("is_animated", False)
+                    and not st.get("is_video", False)
+                ):
+                    rollers_casino_withdrawal_map.setdefault(alt, ce_id)
                 if pack == "RollersProgressBar_by_CheakLeaksBot" and ce_id:
                     _PROGRESS_BAR_STICKERS.append(ce_id)
                 if pack == "rollerscasino_by_rollersgamebot" and alt in _RC_MASCOT_EMOJI:
@@ -10086,6 +10141,7 @@ async def _load_custom_emoji_pack(bot) -> None:
     # Unicode character with animated artwork.
     CUSTOM_EMOJI_MAP = dict(rollers_casino_map)
     _ROLLERS_CASINO_EMOJI_MAP = rollers_casino_map
+    _ROLLERS_CASINO_WITHDRAWAL_EMOJI_MAP = rollers_casino_withdrawal_map
     # Hard-pinned overrides — guarantee these win over whatever the auto-loader picked.
     # 🎲 dice is taken from the WelvurEmoji pack as requested.
     CUSTOM_EMOJI_MAP["🎲"] = "5972061723400605896"
@@ -15556,6 +15612,36 @@ async def handle_np_withdrawal_address(update: Update, context: ContextTypes.DEF
     finally:
         _processing_np_withdrawals.discard(user_id)
 
+WITHDRAWAL_CURRENCY_LABELS = {
+    "BTC": "Bitcoin",
+    "ETH": "Ethereum",
+    "USDT": "USDT",
+    "USDC": "USDC",
+    "LTC": "Litecoin",
+    "SOL": "Solana",
+    "BNB": "BNB",
+    "TRX": "Tron",
+    "XRP": "Ripple",
+    "DOGE": "Dogecoin",
+    "SHIB": "Shiba Inu",
+    "MATIC": "Polygon",
+    "TON": "Toncoin",
+}
+
+
+def _reset_crypto_withdrawal_entry(user_id: str) -> None:
+    """Clear an unfinished amount/address step when a user returns to the picker."""
+    if user_states.get(user_id) not in {
+        UserState.CRYPTO_WITHDRAWAL_AMOUNT,
+        UserState.CRYPTO_WITHDRAWAL_ADDRESS,
+    }:
+        return
+    user_states[user_id] = UserState.NONE
+    for suffix in ("crypto", "network", "amount_usd"):
+        user_states.pop(f"{user_id}_{suffix}", None)
+    save_data()
+
+
 def build_crypto_withdrawal_keyboard(
     back_callback: str = "back_to_menu",
     include_cc_tip: bool = True,
@@ -15567,8 +15653,8 @@ def build_crypto_withdrawal_keyboard(
         row = []
         for code in coins[index:index + 2]:
             info = SUPPORTED_CRYPTOCURRENCIES[code]
-            label = info["name"]
-            icon_id = _button_premium_emoji_id(f"{label} {code}")
+            label = WITHDRAWAL_CURRENCY_LABELS.get(code, info["name"])
+            icon_id = _withdrawal_button_emoji_id(code, f"{label} {code}")
             row.append(InlineKeyboardButton(
                 label,
                 callback_data=f"crypto_withdraw_{code}",
@@ -15605,6 +15691,7 @@ def supported_withdrawal_coin_codes() -> list[str]:
 async def handle_crypto_withdrawals_menu(query, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle crypto withdrawals menu from main menu."""
     user_id = str(query.from_user.id)
+    _reset_crypto_withdrawal_entry(user_id)
     user_currency = get_user_currency(user_id)
     username = query.from_user.username or query.from_user.first_name or "Player"
     balance = get_user_balance(user_id)
@@ -15640,7 +15727,10 @@ async def handle_crypto_withdrawals_menu(query, context: ContextTypes.DEFAULT_TY
 
     reply_markup = build_crypto_withdrawal_keyboard()
 
-    withdrawal_message = f"{_rc_tag('💲')} <b>Select withdrawal currency</b>"
+    withdrawal_message = (
+        f"{_withdrawal_emoji('💵')} "
+        f"<b>Select withdrawal currency</b>"
+    )
     await _edit_callback_text_or_send(
         query,
         context,
@@ -16223,17 +16313,27 @@ async def handle_crypto_withdrawal_selection(query, context: ContextTypes.DEFAUL
         user_states[f"{user_id}_network"] = network
         save_data()
 
-        _wa_kb1 = InlineKeyboardMarkup([[
-            InlineKeyboardButton(
-                f"Withdraw all ({format_balance_in_currency(user_balance, user_currency)})",
-                callback_data=f"withdraw_all_{user_id}_{crypto}_{network}",
-                icon_custom_emoji_id=_button_premium_emoji_id("Withdraw all"),
-            )
-        ]])
+        _wa_kb1 = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    f"Withdraw all ({format_balance_in_currency(user_balance, user_currency)})",
+                    callback_data=f"withdraw_all_{user_id}_{crypto}_{network}",
+                    icon_custom_emoji_id=_button_premium_emoji_id("Withdraw all"),
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    "Back",
+                    callback_data="crypto_withdrawals",
+                    icon_custom_emoji_id=_button_premium_emoji_id("Back"),
+                )
+            ],
+        ])
         await query.edit_message_text(
-            f"{_rc_tag('📤')} <b>Withdraw {crypto_info['name']} on the {network_name} network</b>\n\n"
-            f"{_rc_tag('💲')} Enter withdrawal amount\n"
-            f"{_rc_tag('💵')} Current balance: <b>{format_balance_in_currency(user_balance, user_currency)}</b>\n"
+            f"{_withdrawal_emoji('📤')} <b>Withdraw {crypto_info['name']} on the {network_name} network</b>\n\n"
+            f"{_withdrawal_emoji('💵')} Enter the withdrawal amount\n"
+            f"{_withdrawal_emoji('💳')} Withdrawal fee: network and provider fees may vary\n"
+            f"{_withdrawal_emoji('👛')} Current balance: <b>{format_balance_in_currency(user_balance, user_currency)}</b>\n"
             f"Minimum: <b>${MIN_WITHDRAWAL:.2f}</b>",
             parse_mode=ParseMode.HTML,
             reply_markup=_wa_kb1
@@ -16269,17 +16369,27 @@ async def handle_crypto_network_withdrawal_selection(query, context: ContextType
     user_states[f"{user_id}_network"] = network
     save_data()
 
-    _wa_kb2 = InlineKeyboardMarkup([[
-        InlineKeyboardButton(
-            f"Withdraw all ({format_balance_in_currency(user_balance, user_currency)})",
-            callback_data=f"withdraw_all_{user_id}_{crypto}_{network}",
-            icon_custom_emoji_id=_button_premium_emoji_id("Withdraw all"),
-        )
-    ]])
+    _wa_kb2 = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton(
+                f"Withdraw all ({format_balance_in_currency(user_balance, user_currency)})",
+                callback_data=f"withdraw_all_{user_id}_{crypto}_{network}",
+                icon_custom_emoji_id=_button_premium_emoji_id("Withdraw all"),
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                "Back",
+                callback_data="crypto_withdrawals",
+                icon_custom_emoji_id=_button_premium_emoji_id("Back"),
+            )
+        ],
+    ])
     await query.edit_message_text(
-        f"{_rc_tag('📤')} <b>Withdraw {crypto_info['name']} on the {network_name} network</b>\n\n"
-        f"{_rc_tag('💲')} Enter withdrawal amount\n"
-        f"{_rc_tag('💵')} Current balance: <b>{format_balance_in_currency(user_balance, user_currency)}</b>\n"
+        f"{_withdrawal_emoji('📤')} <b>Withdraw {crypto_info['name']} on the {network_name} network</b>\n\n"
+        f"{_withdrawal_emoji('💵')} Enter the withdrawal amount\n"
+        f"{_withdrawal_emoji('💳')} Withdrawal fee: network and provider fees may vary\n"
+        f"{_withdrawal_emoji('👛')} Current balance: <b>{format_balance_in_currency(user_balance, user_currency)}</b>\n"
         f"Minimum: <b>${MIN_WITHDRAWAL:.2f}</b>",
         parse_mode=ParseMode.HTML,
         reply_markup=_wa_kb2
@@ -16336,27 +16446,52 @@ async def handle_crypto_withdrawal_amount(update: Update, context: ContextTypes.
     _saved_addr = user_saved_withdrawal_addresses.get(user_id, {}).get(_saved_addr_key)
 
     address_message = (
-        f"<b>📤 WITHDRAWAL ADDRESS</b>\n\n"
-        f"💰 Coin: <b>{crypto_info['name']}</b>\n"
-        f"💵 Amount: <b>${amount_usd:.2f}</b>\n\n"
-        f"Please send your {crypto} wallet address:"
+        f"{_withdrawal_emoji('📤')} <b>Enter wallet for withdrawal</b>\n\n"
+        f"{_withdrawal_emoji('🪙')} Coin: <b>{crypto_info['name']}</b>\n"
+        f"{_withdrawal_emoji('💵')} Amount: <b>${amount_usd:.2f}</b>\n"
+        f"{_withdrawal_emoji('🔗')} Network: <b>{NETWORK_INFO.get(network, network)}</b>\n\n"
+        f"Please enter your {crypto} wallet address:"
     )
 
     if _saved_addr:
-        _addr_kb = InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"📋 Use saved: {_saved_addr[:12]}…{_saved_addr[-6:]}", callback_data=f"use_saved_addr_{user_id}"),
-            InlineKeyboardButton("🗑 Remove", callback_data=f"remove_saved_addr_{user_id}_{_saved_addr_key}"),
-        ]])
+        _addr_kb = InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton(
+                    f"Use saved: {_saved_addr[:12]}…{_saved_addr[-6:]}",
+                    callback_data=f"use_saved_addr_{user_id}",
+                ),
+                InlineKeyboardButton(
+                    "Remove saved address",
+                    callback_data=f"remove_saved_addr_{user_id}_{_saved_addr_key}",
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    "Back",
+                    callback_data="crypto_withdrawals",
+                    icon_custom_emoji_id=_button_premium_emoji_id("Back"),
+                )
+            ],
+        ])
         await update.message.reply_text(
-            address_message + f"\n\n💾 <b>Saved address detected!</b> Tap to use, or type a new one.\n\n"
-                              "⚠️ Double-check the address — wrong address = lost funds!",
+            address_message
+            + f"\n\n{_withdrawal_emoji('💾')} <b>Saved address detected.</b> Tap to use it, or type a new one.\n\n"
+            + f"{_withdrawal_emoji('⚠️')} Double-check the address — a wrong address can cause lost funds.",
             parse_mode=ParseMode.HTML,
             reply_markup=_addr_kb
         )
     else:
         await update.message.reply_text(
-            address_message + "\n\n⚠️ <b>IMPORTANT:</b> Double-check the address. Wrong address = Lost funds!",
-            parse_mode=ParseMode.HTML
+            address_message
+            + f"\n\n{_withdrawal_emoji('⚠️')} <b>Important:</b> Double-check the address. A wrong address can cause lost funds.",
+            parse_mode=ParseMode.HTML,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton(
+                    "Back",
+                    callback_data="crypto_withdrawals",
+                    icon_custom_emoji_id=_button_premium_emoji_id("Back"),
+                )
+            ]]),
         )
     logger.info(f"Withdrawal: User {user_id} entered ${amount_usd}, now waiting for {crypto} address")
 
@@ -16471,7 +16606,7 @@ async def handle_crypto_withdrawal_address(update: Update, context: ContextTypes
 
     # Notify user of successful submission
     await processing_msg.edit_text(
-        f"<tg-emoji emoji-id=\"5368324170671202286\">💸</tg-emoji> <b>Withdrawal Processing</b>\n\n"
+        f"{_withdrawal_emoji('📤')} <b>Withdrawal Processing</b>\n\n"
         f"Crypto: {crypto_info['name']}\n"
         f"Amount: <b>${amount_usd:.2f}</b>\n"
         f"Address: <code>{withdrawal_address}</code>\n"
