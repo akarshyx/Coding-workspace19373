@@ -4370,7 +4370,7 @@ _RC_MASCOT_EMOJI = {
 
 def _rc_tag(symbol: str) -> str:
     """Render a pack custom emoji when available, otherwise use the symbol."""
-    emoji_id = CUSTOM_EMOJI_MAP.get(symbol) if CUSTOM_EMOJI_MAP else None
+    emoji_id = _ROLLERS_CASINO_EMOJI_MAP.get(symbol)
     return f'<tg-emoji emoji-id="{emoji_id}">{symbol}</tg-emoji>' if emoji_id else symbol
 
 def _rc_game_status(player_won: bool, amount: str) -> str:
@@ -4428,7 +4428,7 @@ def _rc_player_turn_keyboard(
         success_btn(
             "Send an emoji",
             callback_data=callback,
-            icon_custom_emoji_id=CUSTOM_EMOJI_MAP.get(game_emoji),
+            icon_custom_emoji_id=_ROLLERS_CASINO_EMOJI_MAP.get(game_emoji),
         )
     ]])
 
@@ -4461,19 +4461,19 @@ def _rc_end_keyboard(game_name: str, dice_format: str, bet_amount: float,
             success_btn(
                 "Repeat",
                 callback_data=f"{game_name}_repeat_{dice_format}_{bet_amount}_{mode_char}",
-                icon_custom_emoji_id=CUSTOM_EMOJI_MAP.get("🔄"),
+                icon_custom_emoji_id=_ROLLERS_CASINO_EMOJI_MAP.get("🔄"),
             ),
             primary_btn(
                 "×2 Double",
                 callback_data=f"{game_name}_double_{dice_format}_{bet_amount}_{mode_char}",
-                icon_custom_emoji_id=CUSTOM_EMOJI_MAP.get("💰"),
+                icon_custom_emoji_id=_ROLLERS_CASINO_EMOJI_MAP.get("💰"),
             ),
         ],
         [
             danger_btn(
                 "Change mode",
                 callback_data=f"{game_name}_changemode_{bet_amount}",
-                icon_custom_emoji_id=CUSTOM_EMOJI_MAP.get("⚙️"),
+                icon_custom_emoji_id=_ROLLERS_CASINO_EMOJI_MAP.get("⚙️"),
             )
         ],
     ])
@@ -4486,18 +4486,9 @@ try:
 except Exception:
     _bot_lose_sticker_id = ""
 
-# ── Player Win Celebration Sticker ──────────────────────────────────────────
-# This is the player-win sticker selected by the owner.
-_PLAYER_WIN_STICKER_ID = (
-    "CAACAgUAAxUAAWp22R0KT64KFLA5gDgOH-mxcuT6AAIYIAACwBuBV2_7ioEwlngKPQQ"
-)
-
 async def _send_player_win_sticker(bot, chat_id):
-    """Send exactly one copy of the animated Rollers win sticker."""
-    try:
-        await bot.send_sticker(chat_id=chat_id, sticker=_PLAYER_WIN_STICKER_ID)
-    except Exception as _ws_e:
-        logger.warning("[WIN-STICKER] Failed: %s", _ws_e)
+    """Compatibility no-op: results use static pack emoji, not win stickers."""
+    return None
 
 async def _send_bot_lose_sticker(context, chat_id):
     """Send the configured 'bot lost' sticker to a chat (silent on failure)."""
@@ -4547,6 +4538,7 @@ async def _send_game_result_msg(context, chat_id,
         text=html,
         parse_mode=ParseMode.HTML,
         reply_markup=reply_markup,
+        disable_web_page_preview=True,
     )
 user_mines_early_cashouts = {}  # Track early cashout exploitation in mines (1-2 tiles)
 # PROFIT TRACKING SYSTEM - Track user profitability to adjust win rates

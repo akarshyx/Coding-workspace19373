@@ -1,1 +1,1 @@
-- [Telegram bot emoji style](telegram-emoji-style.md) — use static CasinoDCMoji icons for withdrawal coins; never use animated premium emoji.
+- [Telegram bot UI style](telegram-emoji-style.md) — use static pack emoji for wins and withdrawals; no animated win stickers or self-promotion after a result.
