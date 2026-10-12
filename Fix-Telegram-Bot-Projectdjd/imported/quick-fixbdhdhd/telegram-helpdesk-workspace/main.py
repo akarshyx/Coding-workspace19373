@@ -378,11 +378,12 @@ _WITHDRAWAL_COIN_EMOJI_ALIASES = {
     "LTC": ("Ł", "🔵"),
     "SOL": ("◎", "🟣"),
     "BNB": ("🔶", "🟡"),
-    "TRX": ("❤", "♥", "⚡"),
+    "TRX": ("🔺", "🔻", "🔴", "❤", "♥"),
     "XRP": ("✕", "🔵"),
     "DOGE": ("🐕", "🐶"),
     "SHIB": ("🐕", "🐶"),
-    "BCH": ("₿", "🟢"),
+    "BCH": ("🟢", "💚"),
+    "DAI": ("Ð", "🟡", "💲"),
     "MATIC": ("🟣", "⬡"),
     "TON": ("💎", "🔹"),
     "ADA": ("🔷", "🔵"),
@@ -409,8 +410,7 @@ def _withdrawal_button_emoji_id(code: str, label: str = "") -> str | None:
     for symbol in _WITHDRAWAL_COIN_EMOJI_ALIASES.get(str(code).upper(), ()):
         if static_map.get(symbol):
             return static_map[symbol]
-    # Use the shared resolver only for a verified general-pack icon.
-    return _button_premium_emoji_id(label)
+    return None
 
 
 def _button_plain_label(text: str) -> str:
@@ -5200,6 +5200,8 @@ SUPPORTED_CRYPTOCURRENCIES = {
     'SHIB': {'name': 'Shiba Inu', 'nowpayments_code': 'shib', 'min_deposit': 5.0},
     'AVAX': {'name': 'Avalanche', 'nowpayments_code': 'avax', 'min_deposit': 2.0},
     'TON': {'name': 'Toncoin', 'nowpayments_code': 'ton', 'min_deposit': 2.0},
+    'DAI': {'name': 'DAI', 'nowpayments_code': 'dai', 'min_deposit': 2.0},
+    'BCH': {'name': 'Bitcoin Cash', 'nowpayments_code': 'bch', 'min_deposit': 2.0},
     'LINK': {'name': 'Chainlink', 'nowpayments_code': 'link', 'min_deposit': 2.0},
     'XLM': {'name': 'Stellar', 'nowpayments_code': 'xlm', 'min_deposit': 2.0},
     'ATOM': {'name': 'Cosmos', 'nowpayments_code': 'atom', 'min_deposit': 2.0},
@@ -15624,9 +15626,16 @@ WITHDRAWAL_CURRENCY_LABELS = {
     "XRP": "Ripple",
     "DOGE": "Dogecoin",
     "SHIB": "Shiba Inu",
+    "DAI": "DAI",
+    "BCH": "Bitcoin Cash",
     "MATIC": "Polygon",
-    "TON": "Toncoin",
+    "TON": "Gram (prev. TON)",
 }
+
+WITHDRAWAL_CURRENCY_ORDER = (
+    "BTC", "ETH", "USDT", "USDC", "LTC", "SOL", "BNB", "TRX",
+    "XRP", "DAI", "DOGE", "SHIB", "BCH", "MATIC", "TON",
+)
 
 
 def _reset_crypto_withdrawal_entry(user_id: str) -> None:
@@ -15644,7 +15653,6 @@ def _reset_crypto_withdrawal_entry(user_id: str) -> None:
 
 def build_crypto_withdrawal_keyboard(
     back_callback: str = "back_to_menu",
-    include_cc_tip: bool = True,
 ) -> InlineKeyboardMarkup:
     """Build the same two-column withdrawal picker for menu and slash commands."""
     coins = supported_withdrawal_coin_codes()
@@ -15661,14 +15669,6 @@ def build_crypto_withdrawal_keyboard(
                 icon_custom_emoji_id=icon_id,
             ))
         keyboard.append(row)
-    if include_cc_tip:
-        keyboard.append([
-            InlineKeyboardButton(
-                "CC Tip Withdrawal",
-                callback_data="cctip_menu",
-                icon_custom_emoji_id=_button_premium_emoji_id("CC Tip Withdrawal"),
-            )
-        ])
     keyboard.append([
         InlineKeyboardButton(
             "Back",
@@ -15680,10 +15680,11 @@ def build_crypto_withdrawal_keyboard(
 
 
 def supported_withdrawal_coin_codes() -> list[str]:
-    """Return currencies that have both a public coin definition and payout networks."""
+    """Return the target picker currencies that have configured payout networks."""
     return [
         code
-        for code in SUPPORTED_CRYPTOCURRENCIES
+        for code in WITHDRAWAL_CURRENCY_ORDER
+        if code in SUPPORTED_CRYPTOCURRENCIES
         if NOWPAYMENTS_CURRENCY_MAP.get(code)
     ]
 
@@ -15727,10 +15728,7 @@ async def handle_crypto_withdrawals_menu(query, context: ContextTypes.DEFAULT_TY
 
     reply_markup = build_crypto_withdrawal_keyboard()
 
-    withdrawal_message = (
-        f"{_withdrawal_emoji('💵')} "
-        f"<b>Select withdrawal currency</b>"
-    )
+    withdrawal_message = f"{_withdrawal_emoji('💲')} <b>Select withdrawal currency</b>"
     await _edit_callback_text_or_send(
         query,
         context,
@@ -38196,7 +38194,7 @@ async def withdrawal_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     reply_markup = build_crypto_withdrawal_keyboard()
 
-    withdrawal_message = f"{_rc_tag('💲')} <b>Select withdrawal currency</b>"
+    withdrawal_message = f"{_withdrawal_emoji('💲')} <b>Select withdrawal currency</b>"
     await update.message.reply_text(withdrawal_message, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
 
 async def deposit_crypto_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
