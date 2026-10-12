@@ -1,1 +1,1 @@
-- [Telegram bot emoji style](telegram-emoji-style.md) — use static Rollers pack emoji sparingly; default to Unicode and avoid Raika or animated emoji.
+- [Telegram bot emoji style](telegram-emoji-style.md) — use static CasinoDCMoji icons for withdrawal coins; never use animated premium emoji.

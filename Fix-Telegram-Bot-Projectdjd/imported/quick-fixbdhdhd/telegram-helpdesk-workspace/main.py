@@ -370,31 +370,10 @@ def _button_premium_emoji_id(label: str) -> str | None:
     return None
 
 
-_WITHDRAWAL_COIN_EMOJI_ALIASES = {
-    "BTC": ("₿", "🟠"),
-    "ETH": ("🔷", "💎"),
-    "USDT": ("₮", "💵"),
-    "USDC": ("💲", "🔵"),
-    "LTC": ("Ł", "🔵"),
-    "SOL": ("◎", "🟣"),
-    "BNB": ("🔶", "🟡"),
-    "TRX": ("🔺", "🔻", "🔴", "❤", "♥"),
-    "XRP": ("✕", "🔵"),
-    "DOGE": ("🐕", "🐶"),
-    "SHIB": ("🐕", "🐶"),
-    "BCH": ("🟢", "💚"),
-    "DAI": ("Ð", "🟡", "💲"),
-    "MATIC": ("🟣", "⬡"),
-    "TON": ("💎", "🔹"),
-    "ADA": ("🔷", "🔵"),
-    "DOT": ("⚫", "⚪"),
-    "AVAX": ("🔺", "🔴"),
-}
-
-
 def _withdrawal_emoji(symbol: str, fallback: str | None = None) -> str:
-    """Render only an emoji verified as static in the Rollers Casino pack."""
-    emoji_id = _ROLLERS_CASINO_WITHDRAWAL_EMOJI_MAP.get(symbol)
+    """Render a static emoji from the selected coin pack, with safe fallback."""
+    static_map = globals().get("_DC_MOJI_STATIC_EMOJI_MAP", {})
+    emoji_id = static_map.get(symbol)
     if not emoji_id:
         emoji_id = _ROLLERS_CASINO_EMOJI_MAP.get(symbol)
     visible = fallback if fallback is not None else symbol
@@ -405,12 +384,13 @@ def _withdrawal_emoji(symbol: str, fallback: str | None = None) -> str:
 
 
 def _withdrawal_button_emoji_id(code: str, label: str = "") -> str | None:
-    """Pick a withdrawal coin icon only from static emoji in the Rollers pack."""
-    static_map = _ROLLERS_CASINO_WITHDRAWAL_EMOJI_MAP or _ROLLERS_CASINO_EMOJI_MAP
-    for symbol in _WITHDRAWAL_COIN_EMOJI_ALIASES.get(str(code).upper(), ()):
-        if static_map.get(symbol):
-            return static_map[symbol]
-    return None
+    """Return the verified static CasinoDCMoji icon for a withdrawal currency."""
+    normalized = str(code or "").upper()
+    normalized = {"MATIC": "POL", "TON": "GRAM"}.get(normalized, normalized)
+    emoji_id = globals().get("DEPOSIT_COIN_EMOJI_ID", {}).get(normalized)
+    if not emoji_id:
+        emoji_id = globals().get("_DC_MOJI_BY_CODE", {}).get(normalized)
+    return emoji_id
 
 
 def _button_plain_label(text: str) -> str:
@@ -2526,6 +2506,7 @@ DEPOSIT_COIN_EMOJI_ID = {
     "SHIB":      "6235536371914645716",  # #091 Shiba Inu
     "BCH":       "6235741967704137863",  # #082 Bitcoin Cash
     "GRAM":      "6235568867637207626",  # user-supplied Gram premium emoji
+    "XRP":       "6235775756211855599",  # #083 Ripple
     # ── USDT network variants → same USDT icon ──
     "ERC20_USDT":  "6235719848622562633",
     "TRC20_USDT":  "6235719848622562633",
@@ -9820,6 +9801,7 @@ _DC_MOJI_STICKERS: list = []   # list of (emoji_char, custom_emoji_id)
 # coin base symbol → custom_emoji_id from CasinoDCMoji_by_CheakLeaksBot.
 # Auto-filled at startup; falls back to DEPOSIT_COIN_EMOJI_ID if pack unavailable.
 _DC_MOJI_BY_CODE: dict = {}
+_DC_MOJI_STATIC_EMOJI_MAP: dict = {}
 _PROGRESS_BAR_STICKERS: list = []
 # Emoji IDs loaded specifically from rollerscasino_by_rollersgamebot.  Pump
 # captions use this map rather than accidentally borrowing a same-symbol emoji
@@ -9989,12 +9971,13 @@ async def _load_custom_emoji_pack(bot) -> None:
     """Fetch each configured custom-emoji pack once at startup.
     Uses raw httpx to bypass PTB StickerSet de-serialisation issues
     (some Bot API fields changed in newer versions, breaking the PTB parser)."""
-    global CUSTOM_EMOJI_MAP, CRYPTOCOINS_STICKERS, CRYPTOCOINS_DEFAULT_ID, _DC_MOJI_STICKERS, _DC_MOJI_BY_CODE, _PROGRESS_BAR_STICKERS, _ROLLERS_CASINO_EMOJI_MAP, _ROLLERS_CASINO_WITHDRAWAL_EMOJI_MAP
+    global CUSTOM_EMOJI_MAP, CRYPTOCOINS_STICKERS, CRYPTOCOINS_DEFAULT_ID, _DC_MOJI_STICKERS, _DC_MOJI_BY_CODE, _DC_MOJI_STATIC_EMOJI_MAP, _PROGRESS_BAR_STICKERS, _ROLLERS_CASINO_EMOJI_MAP, _ROLLERS_CASINO_WITHDRAWAL_EMOJI_MAP
     global _BJ_HIDDEN_EMOJI_ID, _BJ_HEADER_EMOJI_ID
     global RANK_TIER_CUSTOM_EMOJI, DIAMOND_EMOJI_IDS
     merged: dict = {}
     rollers_casino_map: dict = {}
     rollers_casino_withdrawal_map: dict = {}
+    dc_moji_static_map: dict = {}
     rank_pack_stickers: list = []
     diamond_game_pack_stickers: list = []
     import httpx as _hx
@@ -10044,8 +10027,15 @@ async def _load_custom_emoji_pack(bot) -> None:
                     CRYPTOCOINS_STICKERS.append(ce_id)
                     if not CRYPTOCOINS_DEFAULT_ID and alt == "🪙":
                         CRYPTOCOINS_DEFAULT_ID = ce_id
-                if pack == "CasinoDCMoji_by_CheakLeaksBot" and ce_id:
-                    _DC_MOJI_STICKERS.append((alt or "", ce_id))
+                if (
+                    pack == "CasinoDCMoji_by_CheakLeaksBot"
+                    and ce_id
+                    and alt
+                    and not st.get("is_animated", False)
+                    and not st.get("is_video", False)
+                ):
+                    _DC_MOJI_STICKERS.append((alt, ce_id))
+                    dc_moji_static_map.setdefault(alt, ce_id)
             if pack == "CasinoDCMoji_by_CheakLeaksBot":
                 # Log every sticker so we can build the emoji→coin mapping.
                 for idx, (ch, cid) in enumerate(_DC_MOJI_STICKERS):
@@ -10144,6 +10134,7 @@ async def _load_custom_emoji_pack(bot) -> None:
     CUSTOM_EMOJI_MAP = dict(rollers_casino_map)
     _ROLLERS_CASINO_EMOJI_MAP = rollers_casino_map
     _ROLLERS_CASINO_WITHDRAWAL_EMOJI_MAP = rollers_casino_withdrawal_map
+    _DC_MOJI_STATIC_EMOJI_MAP = dc_moji_static_map
     # Hard-pinned overrides — guarantee these win over whatever the auto-loader picked.
     # 🎲 dice is taken from the WelvurEmoji pack as requested.
     CUSTOM_EMOJI_MAP["🎲"] = "5972061723400605896"
